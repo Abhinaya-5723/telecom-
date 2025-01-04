@@ -1,103 +1,59 @@
-// app.js
-
-// --- [1] IMPORTS ---
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const bodyParser = require('body-parser');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const path = require('path');
-
-// --- [2] SETUP EXPRESS ---
-const app = express();
-app.use(bodyParser.json());
-app.use(express.static('public'));
-const PORT = 3000;
-const SECRET_KEY = 'secret';
-
-// --- [3] DATABASE SETUP ---
-const db = new sqlite3.Database(':memory:'); // In-memory DB for demonstration
-
-db.serialize(() => {
-    db.run(`CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE,
-        password TEXT,
-        role TEXT
-    )`);
-
-    db.run(`CREATE TABLE products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        category TEXT,
-        stock_level INTEGER,
-        reorder_point INTEGER
-    )`);
-
-    db.run(`CREATE TABLE suppliers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        contact TEXT
-    )`);
-
-    db.run(`INSERT INTO users (email, password, role) VALUES (?, ?, ?)`, 
-        ['admin@tims.com', bcrypt.hashSync('admin123', 8), 'Admin']);
-});
-
-// --- [4] AUTHENTICATION ROUTES ---
-app.post('/api/login', (req, res) => {
-    const { email, password } = req.body;
-    db.get(`SELECT * FROM users WHERE email = ?`, [email], (err, user) => {
-        if (!user || !bcrypt.compareSync(password, user.password)) {
-            return res.status(400).json({ error: 'Invalid credentials' });
-        }
-        const token = jwt.sign({ id: user.id, role: user.role }, SECRET_KEY, { expiresIn: '1h' });
-        res.json({ token });
-    });
-});
-
-const authenticate = (req, res, next) => {
-    const token = req.header('Authorization');
-    if (!token) return res.status(401).json({ error: 'Access Denied' });
-    try {
-        const verified = jwt.verify(token, SECRET_KEY);
-        req.user = verified;
-        next();
-    } catch (err) {
-        res.status(400).json({ error: 'Invalid Token' });
-    }
-};
-
-// --- [5] PRODUCT ROUTES ---
-app.get('/api/products', authenticate, (req, res) => {
-    db.all(`SELECT * FROM products`, [], (err, products) => {
-        res.json(products);
-    });
-});
-
-app.post('/api/products', authenticate, (req, res) => {
-    const { name, category, stock_level, reorder_point } = req.body;
-    db.run(`INSERT INTO products (name, category, stock_level, reorder_point) VALUES (?, ?, ?, ?)`,
-        [name, category, stock_level, reorder_point], (err) => {
-            if (err) return res.status(400).json({ error: err.message });
-            res.json({ message: 'Product added' });
-        });
-});
-
-// --- [6] ALERTS (Simplified Example) ---
-app.get('/api/alerts', authenticate, (req, res) => {
-    db.all(`SELECT * FROM products WHERE stock_level <= reorder_point`, [], (err, alerts) => {
-        res.json(alerts);
-    });
-});
-
-// --- [7] FRONTEND (SERVED AS STATIC HTML) ---
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '/public/index.html'));
-});
-
-// --- [8] START SERVER ---
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
-
+CREATE TABLE Users (
+    user_id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    role ENUM('Admin', 'Manager', 'Staff') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE Products (
+    product_id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    description TEXT,
+    stock_level INT DEFAULT 0,
+    reorder_point INT DEFAULT 10,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE Suppliers (
+    supplier_id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    contact_name VARCHAR(100),
+    contact_email VARCHAR(100),
+    contact_phone VARCHAR(15),
+    address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE Transactions (
+    transaction_id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT,
+    user_id INT,
+    supplier_id INT,
+    transaction_type ENUM('Stock In', 'Stock Out') NOT NULL,
+    quantity INT NOT NULL,
+    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    remarks TEXT,
+    FOREIGN KEY (product_id) REFERENCES Products(product_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE SET NULL,
+    FOREIGN KEY (supplier_id) REFERENCES Suppliers(supplier_id) ON DELETE SET NULL
+);
+INSERT INTO Users (username, email, password, role) 
+VALUES 
+('admin_user', 'admin@example.com', 'hashed_password', 'Admin'),
+('manager_user', 'manager@example.com', 'hashed_password', 'Manager'),
+('staff_user', 'staff@example.com', 'hashed_password', 'Staff');
+INSERT INTO Products (name, category, description, stock_level, reorder_point) 
+VALUES 
+('Router', 'Networking', 'High-speed router', 50, 5),
+('Modem', 'Networking', 'Broadband modem', 30, 3);
+INSERT INTO Suppliers (name, contact_name, contact_email, contact_phone, address) 
+VALUES 
+('Tech Supplier Inc.', 'Alice', 'alice@techsupplier.com', '1234567890', '123 Tech St, City'),
+('Net Supplier Ltd.', 'Bob', 'bob@netsupplier.com', '9876543210', '456 Net Ave, City');
+INSERT INTO Transactions (product_id, user_id, supplier_id, transaction_type, quantity, remarks) 
+VALUES 
+(1, 1, 1, 'Stock In', 20, 'Restocked routers'),
+(2, 2, 2, 'Stock Out', 5, 'Sold modems');
